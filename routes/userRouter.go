@@ -1,14 +1,15 @@
 package routes
 
 import (
-	controller "github.com/ozataknurullah/learn_wise_backend/controllers"
-	"github.com/ozataknurullah/learn_wise_backend/middleware"
-
 	"github.com/gin-gonic/gin"
+	"github.com/ozataknurullah/learn_wise_backend/controllers"
 )
 
-func UserRoutes(incomingRoutes *gin.Engine) {
-	incomingRoutes.Use(middleware.Authenticate())
-	incomingRoutes.GET("/users", controller.GetUsers())
-	incomingRoutes.GET("/users/:user_id", controller.GetUser())
+func UserRoutes(router *gin.Engine) {
+	router.POST("/user/signup", controllers.Signup())
+	router.POST("/user/login", controllers.Login())
+	router.GET("/user/:user_id", controllers.GetUser())
+	router.GET("/users", controllers.GetUsers())
+	router.PATCH("/user/:user_id", controllers.UpdateUser()) // Güncelleme işlemi
+	router.DELETE("/user/:user_id", controllers.DeleteUser())
 }

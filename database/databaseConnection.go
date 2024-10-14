@@ -19,6 +19,9 @@ func DBinstance() *mongo.Client {
 	}
 
 	MongoDb := os.Getenv("MONGODB_URL")
+	if MongoDb == "" {
+		log.Fatal("MONGODB_URL not found in environment variables")
+	}
 
 	clientOpts := options.Client().ApplyURI(MongoDb)
 	client, err := mongo.Connect(context.TODO(), clientOpts)
@@ -32,7 +35,7 @@ func DBinstance() *mongo.Client {
 	// Ping the primary to ensure connection is established
 	err = client.Ping(ctx, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to ping MongoDB", err)
 	}
 
 	fmt.Println("Connected to MongoDB")
