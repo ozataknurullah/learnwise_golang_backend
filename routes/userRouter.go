@@ -1,8 +1,8 @@
 package routes
 
 import (
-	controller "learn_wise_backend/controllers"
-	"learn_wise_backend/middleware"
+	controller "github.com/ozataknurullah/learn_wise_backend/controllers"
+	"github.com/ozataknurullah/learn_wise_backend/middleware"
 
 	"github.com/gin-gonic/gin"
 )

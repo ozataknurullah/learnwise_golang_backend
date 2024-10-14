@@ -15,30 +15,33 @@ import (
 func DBinstance() *mongo.Client {
 	err := godotenv.Load(".env")
 	if err != nil {
-		log.Fatal("Error Loading .env file")
+		log.Fatal("Error loading .env file")
 	}
 
 	MongoDb := os.Getenv("MONGODB_URL")
 
-	client, err := mongo.NewClient(options.Client().ApplyURI(MongoDb))
+	clientOpts := options.Client().ApplyURI(MongoDb)
+	client, err := mongo.Connect(context.TODO(), clientOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err = client.Connect(ctx)
+
+	// Ping the primary to ensure connection is established
+	err = client.Ping(ctx, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Connected to mongodb")
+	fmt.Println("Connected to MongoDB")
 	return client
 }
 
 var Client *mongo.Client = DBinstance()
 
 func OpenCollection(client *mongo.Client, collectionName string) *mongo.Collection {
-	var collection *mongo.Collection = client.Database("cluster0").Collection(collectionName)
+	collection := client.Database("cluster0").Collection(collectionName)
 	return collection
 }
