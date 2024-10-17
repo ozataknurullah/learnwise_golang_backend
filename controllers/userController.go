@@ -13,37 +13,16 @@ import (
 	"github.com/ozataknurullah/learn_wise_backend/database"
 	helper "github.com/ozataknurullah/learn_wise_backend/helpers"
 	"github.com/ozataknurullah/learn_wise_backend/models"
+	utils "github.com/ozataknurullah/learn_wise_backend/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var accessToken, refreshToken string
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
 var validate = validator.New()
-
-func HashPassword(password string) string {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
-	if err != nil {
-		log.Panic(err)
-	}
-	return string(bytes)
-}
-
-func VerifyPasword(userPassword string, providedPassword string) (bool, string) {
-	err := bcrypt.CompareHashAndPassword([]byte(providedPassword), []byte(userPassword))
-	check := true
-	msg := ""
-
-	if err != nil {
-		msg = "email or password invalid"
-		check = false
-	}
-
-	return check, msg
-}
 
 func Signup() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -76,19 +55,19 @@ func Signup() gin.HandlerFunc {
 			}
 		}
 		// Check if email already exists
-		if userExists(dbCtx, "email", user.Email) {
+		if utils.UserExists(dbCtx, "email", *user.Email) {
 			c.JSON(http.StatusConflict, gin.H{"error": "An account with this email already exists."})
 			return
 		}
 
 		// Check if phone number already exists
-		if userExists(dbCtx, "phone", user.Phone) {
+		if utils.UserExists(dbCtx, "phone", *user.Phone) {
 			c.JSON(http.StatusConflict, gin.H{"error": "An account with this phone number already exists."})
 			return
 		}
 
 		// Hash the password
-		password := HashPassword(*user.Password)
+		password := utils.HashPassword(*user.Password)
 		user.Password = &password
 
 		// Create user info
@@ -119,14 +98,6 @@ func Signup() gin.HandlerFunc {
 }
 
 // check if the user already exists
-func userExists(ctx context.Context, field string, value *string) bool {
-	count, err := userCollection.CountDocuments(ctx, bson.M{field: *value})
-	if err != nil {
-		log.Printf("Error occurred while checking if user exists for field %s: %v", field, err)
-		return false // Assume false to continue gracefully if there's an error
-	}
-	return count > 0
-}
 
 func Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -148,7 +119,7 @@ func Login() gin.HandlerFunc {
 			return
 		}
 
-		passwordIsValid, msg := VerifyPasword(*user.Password, *foundUser.Password)
+		passwordIsValid, msg := utils.VerifyPassword(*user.Password, *foundUser.Password)
 		if !passwordIsValid {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
@@ -214,7 +185,7 @@ func UpdateUser() gin.HandlerFunc {
 		}
 
 		if user.Email != nil {
-			if userExists(dbCtx, "email", user.Email) {
+			if utils.UserExists(dbCtx, "email", *user.Email) {
 				c.JSON(http.StatusConflict, gin.H{"error": "This email is already in use by another user"})
 				return
 			}
@@ -222,7 +193,7 @@ func UpdateUser() gin.HandlerFunc {
 		}
 
 		if user.Phone != nil {
-			if userExists(dbCtx, "phone", user.Phone) {
+			if utils.UserExists(dbCtx, "phone", *user.Phone) {
 				c.JSON(http.StatusConflict, gin.H{"error": "This phone number is already in use by another user"})
 				return
 			}
@@ -259,19 +230,46 @@ func DeleteUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userId := c.Param("user_id")
 
-		// Kullanıcı tipi kontrolü: ADMIN yetkisi
-		if err := helper.CheckUserType(c, "ADMIN"); err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
+		// Kullanıcının e-posta ve şifre bilgilerini alma
+		var credentials struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+
+		if err := c.BindJSON(&credentials); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 			return
 		}
 
-		// Context ve zaman aşımı tanımlaması
-		var dbCtx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
+
+		// Kullanıcıyı veritabanında bulma
+		var user models.User
+		err := userCollection.FindOne(ctx, bson.M{"user_id": userId, "email": credentials.Email}).Decode(&user)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+
+		// Şifre doğrulama
+		isValid, msg := utils.VerifyPassword(*user.Password, credentials.Password)
+		if !isValid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
+			return
+		}
+
+		// Kullanıcı tipi kontrolü: Kullanıcı kendi hesabını silebilir veya ADMIN diğer kullanıcıları silebilir
+		tokenUserId := c.GetString("uid")
+		userType := c.GetString("user_type")
+		if userType != "ADMIN" && tokenUserId != userId {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized to delete this user"})
+			return
+		}
 
 		// Kullanıcı silme işlemi
 		filter := bson.M{"user_id": userId}
-		result, err := userCollection.DeleteOne(dbCtx, filter)
+		result, err := userCollection.DeleteOne(ctx, filter)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "User deletion failed"})
 			return
