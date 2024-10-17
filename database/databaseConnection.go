@@ -19,6 +19,7 @@ func DBinstance() *mongo.Client {
 	}
 
 	MongoDb := os.Getenv("MONGODB_URL")
+
 	if MongoDb == "" {
 		log.Fatal("MONGODB_URL not found in environment variables")
 	}
@@ -45,6 +46,6 @@ func DBinstance() *mongo.Client {
 var Client *mongo.Client = DBinstance()
 
 func OpenCollection(client *mongo.Client, collectionName string) *mongo.Collection {
-	collection := client.Database("cluster0").Collection(collectionName)
+	collection := client.Database("LearnWise").Collection(collectionName)
 	return collection
 }

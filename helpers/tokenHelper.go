@@ -2,7 +2,6 @@ package helpers
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -33,6 +32,12 @@ var userCollection *mongo.Collection = database.OpenCollection(database.Client, 
 var SECRET_KEY string = os.Getenv("SECRET_KEY")
 
 func GenerateAllTokens(email string, firstName string, lastName string, userType string, uid string) (signedToken string, signedRefreshToken string, err error) {
+	var expiresAt time.Time
+	if userType == "ADMIN" {
+		expiresAt = time.Now().Add(72 * time.Hour) // Admin için 72 saat geçerli token
+	} else {
+		expiresAt = time.Now().Add(24 * time.Hour) // Normal kullanıcı için 24 saat geçerli token
+	}
 	claims := &SignedDetails{
 		Email:      email,
 		First_name: firstName,
@@ -40,7 +45,7 @@ func GenerateAllTokens(email string, firstName string, lastName string, userType
 		Uid:        uid,
 		User_type:  userType,
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+			ExpiresAt: expiresAt.Unix(),
 		},
 	}
 
@@ -85,13 +90,13 @@ func ValidateToken(signedToken string) (claims *SignedDetails, msg string) {
 
 	claims, ok := token.Claims.(*SignedDetails)
 	if !ok {
-		msg = fmt.Sprintf("the token is invalid")
+		msg = "the token is invalid"
 		msg = err.Error()
 		return
 	}
 
 	if claims.ExpiresAt < time.Now().Local().Unix() {
-		msg = fmt.Sprintf("token is expired")
+		msg = "token is expired"
 		msg = err.Error()
 		return
 	}
@@ -99,7 +104,8 @@ func ValidateToken(signedToken string) (claims *SignedDetails, msg string) {
 }
 
 func UpdateAllTokens(signedToken string, signedRefreshToken string, userId string) {
-	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+	var dbCtx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
 
 	var updateObj primitive.D
 
@@ -107,7 +113,7 @@ func UpdateAllTokens(signedToken string, signedRefreshToken string, userId strin
 	updateObj = append(updateObj, bson.E{Key: "refresh_token", Value: signedRefreshToken})
 
 	Updated_at, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
-	updateObj = append(updateObj, bson.E{Key: "udated_at", Value: Updated_at})
+	updateObj = append(updateObj, bson.E{Key: "updated_at", Value: Updated_at})
 
 	upsert := true
 	filter := bson.M{"user_id": userId}
@@ -115,14 +121,12 @@ func UpdateAllTokens(signedToken string, signedRefreshToken string, userId strin
 		Upsert: &upsert,
 	}
 
-	_, err := userCollection.UpdateOne(ctx, filter, bson.D{{Key: "$set", Value: updateObj}}, &opt)
+	_, err := userCollection.UpdateOne(dbCtx, filter, bson.D{{Key: "$set", Value: updateObj}}, &opt)
 
 	defer cancel()
-
 	if err != nil {
 		log.Panic(err)
 		return
 	}
-	return
 
 }

@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/ozataknurullah/learn_wise_backend/database"
-	"github.com/ozataknurullah/learn_wise_backend/helpers"
 	helper "github.com/ozataknurullah/learn_wise_backend/helpers"
 	"github.com/ozataknurullah/learn_wise_backend/models"
 	"go.mongodb.org/mongo-driver/bson"
@@ -52,66 +52,87 @@ func Signup() gin.HandlerFunc {
 
 		var user models.User
 
+		// Bind the incoming JSON to the user model
 		if err := c.BindJSON(&user); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. Please provide valid user information."})
 			return
 		}
+
+		// Validate the user struct
 		validationErr := validate.Struct(user)
 		if validationErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
-			return
+			var errorMessages []string
+			for _, err := range validationErr.(validator.ValidationErrors) {
+				// Ignore User_id field validation since it is generated internally
+				if err.Field() == "User_id" {
+					continue
+				}
+				errorMessage := fmt.Sprintf("Field '%s' failed validation: %s", err.Field(), err.ActualTag())
+				errorMessages = append(errorMessages, errorMessage)
+			}
+			if len(errorMessages) > 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Validation failed. Please check the provided fields.", "details": errorMessages})
+				return
+			}
 		}
-
-		//checking the mail and the phone
+		// Check if email already exists
 		if userExists(dbCtx, "email", user.Email) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while checking for the email"})
+			c.JSON(http.StatusConflict, gin.H{"error": "An account with this email already exists."})
 			return
 		}
 
+		// Check if phone number already exists
 		if userExists(dbCtx, "phone", user.Phone) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while checking for the phone"})
+			c.JSON(http.StatusConflict, gin.H{"error": "An account with this phone number already exists."})
 			return
 		}
 
-		// hash the password
+		// Hash the password
 		password := HashPassword(*user.Password)
 		user.Password = &password
 
-		//create user info
+		// Create user info
 		user.Created_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		user.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		user.ID = primitive.NewObjectID()
 		userIDHex := user.ID.Hex()
 		user.User_id = &userIDHex
 
-		accessToken, refreshToken, _ = helper.GenerateAllTokens(*user.Email, *user.First_name, *user.Last_name, *user.User_type, *user.User_id)
+		// Generate JWT tokens
+		accessToken, refreshToken, tokenErr := helper.GenerateAllTokens(*user.Email, *user.First_name, *user.Last_name, *user.User_type, *user.User_id)
+		if tokenErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate authentication tokens. Please try again later."})
+			return
+		}
 		user.Token = &accessToken
 		user.Refresh_token = &refreshToken
 
-		// add the user to the database
+		// Add the user to the database
 		resultInsertionNumber, insertErr := userCollection.InsertOne(dbCtx, user)
 		if insertErr != nil {
-			msg := "User item was not created"
-			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user account. Please try again later."})
 			return
 		}
 
-		c.JSON(http.StatusOK, resultInsertionNumber)
+		c.JSON(http.StatusOK, gin.H{"message": "User created successfully.", "user_id": resultInsertionNumber})
 	}
 }
 
-// check the users if they exist
+// check if the user already exists
 func userExists(ctx context.Context, field string, value *string) bool {
 	count, err := userCollection.CountDocuments(ctx, bson.M{field: *value})
 	if err != nil {
-		log.Panic(err)
+		log.Printf("Error occurred while checking if user exists for field %s: %v", field, err)
+		return false // Assume false to continue gracefully if there's an error
 	}
 	return count > 0
 }
 
 func Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		var dbCtx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
 		var user models.User
 		var foundUser models.User
 
@@ -120,7 +141,7 @@ func Login() gin.HandlerFunc {
 			return
 		}
 
-		err := userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&foundUser)
+		err := userCollection.FindOne(dbCtx, bson.M{"email": user.Email}).Decode(&foundUser)
 		defer cancel()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "emial or password is incorrect"})
@@ -128,8 +149,7 @@ func Login() gin.HandlerFunc {
 		}
 
 		passwordIsValid, msg := VerifyPasword(*user.Password, *foundUser.Password)
-		defer cancel()
-		if passwordIsValid != true {
+		if !passwordIsValid {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
 		}
@@ -140,22 +160,37 @@ func Login() gin.HandlerFunc {
 
 		accessToken, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, *foundUser.User_type, *foundUser.User_id)
 		helper.UpdateAllTokens(accessToken, refreshToken, *foundUser.User_id)
-		err = userCollection.FindOne(ctx, bson.M{"user_id": foundUser.User_id}).Decode(&foundUser)
+		err = userCollection.FindOne(dbCtx, bson.M{"user_id": foundUser.User_id}).Decode(&foundUser)
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, foundUser)
+		// Kullanıcı bilgilerini dönme
+		c.JSON(http.StatusOK, gin.H{
+			"message":       "Login successful",
+			"access_token":  accessToken,
+			"refresh_token": refreshToken,
+			"user":          foundUser,
+		})
 	}
 }
 
 func UpdateUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
+
 		userId := c.Param("user_id")
 
-		if err := helper.CheckUserType(c, "ADMIN"); err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
+		// Kullanıcının kendi bilgilerini değiştirmesine veya admin yetkisiyle herkesi değiştirmesine izin verme
+		tokenUserId := c.GetString("uid")
+		userType := c.GetString("user_type")
+
+		log.Println("User ID from URL:", userId)
+		log.Println("User ID from Token:", tokenUserId)
+		log.Println("User Type from Token:", userType)
+
+		if tokenUserId != userId || userType != "ADMIN" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized to update this user"})
 			return
 		}
 
@@ -225,7 +260,7 @@ func DeleteUser() gin.HandlerFunc {
 		userId := c.Param("user_id")
 
 		// Kullanıcı tipi kontrolü: ADMIN yetkisi
-		if err := helpers.CheckUserType(c, "ADMIN"); err != nil {
+		if err := helper.CheckUserType(c, "ADMIN"); err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized access"})
 			return
 		}
@@ -324,10 +359,10 @@ func GetUser() gin.HandlerFunc {
 		}
 
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
 
 		var user models.User
-		err := userCollection.FindOne(ctx, bson.M{"user_id": user.User_id}).Decode(&user)
-		defer cancel()
+		err := userCollection.FindOne(ctx, bson.M{"user_id": userId}).Decode(&user)
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

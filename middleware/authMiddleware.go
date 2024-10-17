@@ -4,6 +4,7 @@ package middleware
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	helper "github.com/ozataknurullah/learn_wise_backend/helpers"
@@ -11,13 +12,14 @@ import (
 
 func Authenticate() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clientToken := c.Request.Header.Get("token")
+		clientToken := c.Request.Header.Get("Authorization")
 		if clientToken == "" {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("No Authorization header provided ")})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("No Authorization header provided")})
 			c.Abort()
 			return
 		}
 
+		clientToken = strings.TrimSpace(strings.Replace(clientToken, "Bearer", "", 1))
 		claims, err := helper.ValidateToken(clientToken)
 		if err != "" {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err})

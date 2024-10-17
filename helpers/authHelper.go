@@ -6,15 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func CheckUserType(c *gin.Context, role string) (err error) {
-
-	userType := c.GetString("user_type")
-	err = nil
-	if userType != role {
-		err = errors.New("unauthorized to access this resource")
-		return err
+func CheckUserType(c *gin.Context, role string) error {
+	userType, exists := c.Get("user_type")
+	if !exists {
+		return errors.New("user type not found in the context")
 	}
-	return err
+
+	if userType != role {
+		return errors.New("unauthorized to access this resource")
+	}
+
+	return nil
 }
 
 func MatchUserTypeToUid(c *gin.Context, userId string) (err error) {
