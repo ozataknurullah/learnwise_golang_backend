@@ -189,8 +189,8 @@ func UpdateUser() gin.HandlerFunc {
 		log.Println("User ID from Token:", tokenUserId)
 		log.Println("User Type from Token:", userType)
 
-		if tokenUserId != userId || userType != "ADMIN" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized to update this user"})
+		if tokenUserId != userId && userType != "ADMIN" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized to update this user!!!!"})
 			return
 		}
 

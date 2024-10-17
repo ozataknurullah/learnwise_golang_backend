@@ -34,9 +34,9 @@ var SECRET_KEY string = os.Getenv("SECRET_KEY")
 func GenerateAllTokens(email string, firstName string, lastName string, userType string, uid string) (signedToken string, signedRefreshToken string, err error) {
 	var expiresAt time.Time
 	if userType == "ADMIN" {
-		expiresAt = time.Now().Add(72 * time.Hour) // Admin için 72 saat geçerli token
+		expiresAt = time.Now().Add(120 * time.Hour) // Admin için 120 saat geçerli token
 	} else {
-		expiresAt = time.Now().Add(24 * time.Hour) // Normal kullanıcı için 24 saat geçerli token
+		expiresAt = time.Now().Add(48 * time.Hour) // Normal kullanıcı için 48 saat geçerli token
 	}
 	claims := &SignedDetails{
 		Email:      email,
