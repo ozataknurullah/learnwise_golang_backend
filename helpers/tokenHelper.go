@@ -32,12 +32,6 @@ var userCollection *mongo.Collection = database.OpenCollection(database.Client, 
 var SECRET_KEY string = os.Getenv("SECRET_KEY")
 
 func GenerateAllTokens(email string, firstName string, lastName string, userType string, uid string) (signedToken string, signedRefreshToken string, err error) {
-	var expiresAt time.Time
-	if userType == "ADMIN" {
-		expiresAt = time.Now().Add(120 * time.Hour) // Admin için 120 saat geçerli token
-	} else {
-		expiresAt = time.Now().Add(48 * time.Hour) // Normal kullanıcı için 48 saat geçerli token
-	}
 	claims := &SignedDetails{
 		Email:      email,
 		First_name: firstName,
@@ -45,7 +39,7 @@ func GenerateAllTokens(email string, firstName string, lastName string, userType
 		Uid:        uid,
 		User_type:  userType,
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expiresAt.Unix(),
+			ExpiresAt: time.Now().Add(time.Hour * 96).Unix(),
 		},
 	}
 
@@ -79,28 +73,33 @@ func ValidateToken(signedToken string) (claims *SignedDetails, msg string) {
 		signedToken,
 		&SignedDetails{},
 		func(token *jwt.Token) (interface{}, error) {
-			return []byte(SECRET_KEY), nil
+			return []byte(os.Getenv("SECRET_KEY")), nil
 		},
 	)
 
 	if err != nil {
-		msg = err.Error()
+		log.Printf("hata burda")
+		log.Printf("Error occurred while parsing token: %v", err)
+		msg = "error parsing token: " + err.Error()
 		return
 	}
 
+	// Type assertion to validate the claims type
 	claims, ok := token.Claims.(*SignedDetails)
 	if !ok {
 		msg = "the token is invalid"
-		msg = err.Error()
 		return
 	}
 
-	if claims.ExpiresAt < time.Now().Local().Unix() {
+	// Logging the expiration details for debugging purposes
+	log.Printf("Token Expiration Time: %v, Current Time: %v", claims.ExpiresAt, time.Now().Unix())
+
+	if claims.ExpiresAt != 0 && claims.ExpiresAt < time.Now().Unix() {
 		msg = "token is expired"
-		msg = err.Error()
 		return
 	}
-	return claims, msg
+
+	return claims, ""
 }
 
 func UpdateAllTokens(signedToken string, signedRefreshToken string, userId string) {

@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -97,8 +96,6 @@ func Signup() gin.HandlerFunc {
 	}
 }
 
-// check if the user already exists
-
 func Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var dbCtx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
@@ -115,7 +112,7 @@ func Login() gin.HandlerFunc {
 		err := userCollection.FindOne(dbCtx, bson.M{"email": user.Email}).Decode(&foundUser)
 		defer cancel()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "emial or password is incorrect"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "email or password is incorrect"})
 			return
 		}
 
@@ -139,29 +136,23 @@ func Login() gin.HandlerFunc {
 		}
 		// Kullanıcı bilgilerini dönme
 		c.JSON(http.StatusOK, gin.H{
-			"message":       "Login successful",
-			"access_token":  accessToken,
-			"refresh_token": refreshToken,
-			"user":          foundUser,
+			"message": "Login successful",
+			"user":    foundUser,
 		})
 	}
 }
 
+// UpdateUser handles updating user details, allowing users to update their own details or an admin to update any user
 func UpdateUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
-
 		userId := c.Param("user_id")
 
-		// Kullanıcının kendi bilgilerini değiştirmesine veya admin yetkisiyle herkesi değiştirmesine izin verme
+		// Allow users to update their own details or admins to update any user's details
 		tokenUserId := c.GetString("uid")
 		userType := c.GetString("user_type")
 
-		log.Println("User ID from URL:", userId)
-		log.Println("User ID from Token:", tokenUserId)
-		log.Println("User Type from Token:", userType)
-
 		if tokenUserId != userId && userType != "ADMIN" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized to update this user!!!!"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized to update this user"})
 			return
 		}
 
@@ -176,6 +167,7 @@ func UpdateUser() gin.HandlerFunc {
 
 		var updateObj primitive.D
 
+		// Update fields if they are provided
 		if user.First_name != nil {
 			updateObj = append(updateObj, bson.E{Key: "first_name", Value: user.First_name})
 		}
@@ -200,6 +192,7 @@ func UpdateUser() gin.HandlerFunc {
 			updateObj = append(updateObj, bson.E{Key: "phone", Value: user.Phone})
 		}
 
+		// Set updated_at timestamp
 		user.Updated_at = time.Now()
 		updateObj = append(updateObj, bson.E{Key: "updated_at", Value: user.Updated_at})
 
@@ -228,7 +221,10 @@ func UpdateUser() gin.HandlerFunc {
 
 func DeleteUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
 		userId := c.Param("user_id")
+		var user models.User
 
 		// Kullanıcının e-posta ve şifre bilgilerini alma
 		var credentials struct {
@@ -241,11 +237,7 @@ func DeleteUser() gin.HandlerFunc {
 			return
 		}
 
-		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
-		defer cancel()
-
 		// Kullanıcıyı veritabanında bulma
-		var user models.User
 		err := userCollection.FindOne(ctx, bson.M{"user_id": userId, "email": credentials.Email}).Decode(&user)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
