@@ -116,7 +116,7 @@ func Login() gin.HandlerFunc {
 			return
 		}
 
-		passwordIsValid, msg := utils.VerifyPassword(*user.Password, *foundUser.Password)
+		passwordIsValid, msg := utils.VerifyPassword(*foundUser.Password, *user.Password)
 		if !passwordIsValid {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 			return
