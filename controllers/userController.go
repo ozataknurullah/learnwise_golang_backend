@@ -32,7 +32,7 @@ func Signup() gin.HandlerFunc {
 
 		// Bind the incoming JSON to the user model
 		if err := c.BindJSON(&user); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. Please provide valid user information."})
+			c.JSON(http.StatusBadRequest, gin.H{"statusCode": http.StatusBadRequest, "error": "Invalid request body. Please provide valid user information."})
 			return
 		}
 
@@ -49,19 +49,19 @@ func Signup() gin.HandlerFunc {
 				errorMessages = append(errorMessages, errorMessage)
 			}
 			if len(errorMessages) > 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Validation failed. Please check the provided fields.", "details": errorMessages})
+				c.JSON(http.StatusBadRequest, gin.H{"statusCode": http.StatusBadRequest, "error": "Validation failed. Please check the provided fields.", "details": errorMessages})
 				return
 			}
 		}
 		// Check if email already exists
 		if utils.UserExists(dbCtx, "email", *user.Email) {
-			c.JSON(http.StatusConflict, gin.H{"error": "An account with this email already exists."})
+			c.JSON(http.StatusConflict, gin.H{"statusCode": http.StatusConflict, "error": "An account with this email already exists."})
 			return
 		}
 
 		// Check if phone number already exists
 		if utils.UserExists(dbCtx, "phone", *user.Phone) {
-			c.JSON(http.StatusConflict, gin.H{"error": "An account with this phone number already exists."})
+			c.JSON(http.StatusConflict, gin.H{"statusCode": http.StatusConflict, "error": "An account with this phone number already exists."})
 			return
 		}
 
@@ -79,7 +79,7 @@ func Signup() gin.HandlerFunc {
 		// Generate JWT tokens
 		accessToken, refreshToken, tokenErr := helper.GenerateAllTokens(*user.Email, *user.First_name, *user.Last_name, *user.User_type, *user.User_id)
 		if tokenErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate authentication tokens. Please try again later."})
+			c.JSON(http.StatusInternalServerError, gin.H{"statusCode": http.StatusInternalServerError, "error": "Failed to generate authentication tokens. Please try again later."})
 			return
 		}
 		user.Token = &accessToken
@@ -88,11 +88,16 @@ func Signup() gin.HandlerFunc {
 		// Add the user to the database
 		resultInsertionNumber, insertErr := userCollection.InsertOne(dbCtx, user)
 		if insertErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user account. Please try again later."})
+			c.JSON(http.StatusInternalServerError, gin.H{"statusCode": http.StatusInternalServerError, "error": "Failed to create user account. Please try again later."})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "User created successfully.", "user_id": resultInsertionNumber})
+		c.JSON(http.StatusOK, gin.H{
+			"statusCode":    http.StatusOK,
+			"message":       "User created successfully.",
+			"user_id":       resultInsertionNumber,
+			"access_token":  accessToken,
+			"refresh_token": refreshToken})
 	}
 }
 
@@ -105,25 +110,25 @@ func Login() gin.HandlerFunc {
 		var foundUser models.User
 
 		if err := c.BindJSON(&user); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"statusCode": http.StatusBadRequest, "error": err.Error()})
 			return
 		}
 
 		err := userCollection.FindOne(dbCtx, bson.M{"email": user.Email}).Decode(&foundUser)
 		defer cancel()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "email or password is incorrect"})
+			c.JSON(http.StatusConflict, gin.H{"statusCode": http.StatusConflict, "error": "email or password is incorrect"})
 			return
 		}
 
 		passwordIsValid, msg := utils.VerifyPassword(*foundUser.Password, *user.Password)
 		if !passwordIsValid {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			c.JSON(http.StatusConflict, gin.H{"statusCode": http.StatusConflict, "error": msg})
 			return
 		}
 
 		if foundUser.Email == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found"})
+			c.JSON(http.StatusInternalServerError, gin.H{"statusCode": http.StatusInternalServerError, "error": "user not found"})
 		}
 
 		accessToken, refreshToken, _ := helper.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, *foundUser.User_type, *foundUser.User_id)
@@ -131,13 +136,14 @@ func Login() gin.HandlerFunc {
 		err = userCollection.FindOne(dbCtx, bson.M{"user_id": foundUser.User_id}).Decode(&foundUser)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"statusCode": http.StatusInternalServerError, "error": err.Error()})
 			return
 		}
 		// Kullanıcı bilgilerini dönme
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Login successful",
-			"user":    foundUser,
+			"statusCode": http.StatusOK,
+			"message":    "Login successful",
+			"user":       foundUser,
 		})
 	}
 }
@@ -280,7 +286,7 @@ func GetUsers() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		//user type control
 		if err := helper.CheckUserType(c, "ADMIN"); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"statusCode": http.StatusBadRequest, "error": err.Error()})
 			return
 		}
 		//context and timeout control
@@ -302,7 +308,7 @@ func GetUsers() gin.HandlerFunc {
 		if startIndexQuery != "" {
 			startIndex, err = strconv.Atoi(startIndexQuery)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid startIndex value"})
+				c.JSON(http.StatusBadRequest, gin.H{"statusCode": http.StatusBadRequest, "error": "Invalid startIndex value"})
 				return
 			}
 		}
@@ -326,13 +332,13 @@ func GetUsers() gin.HandlerFunc {
 		})
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while listing user items"})
+			c.JSON(http.StatusInternalServerError, gin.H{"statusCode": http.StatusInternalServerError, "error": "error occured while listing user items"})
 			return
 		}
 
 		var allUsers []bson.M
 		if err = result.All(dbCtx, &allUsers); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error occurred while parsing users data"})
+			c.JSON(http.StatusInternalServerError, gin.H{"statusCode": http.StatusInternalServerError, "error": "Error occurred while parsing users data"})
 			return
 		}
 		c.JSON(http.StatusOK, allUsers[0])
@@ -344,7 +350,7 @@ func GetUser() gin.HandlerFunc {
 		userId := c.Param("user_id")
 
 		if err := helper.MatchUserTypeToUid(c, userId); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"statusCode": http.StatusBadRequest, "error": err.Error()})
 			return
 		}
 
@@ -355,7 +361,7 @@ func GetUser() gin.HandlerFunc {
 		err := userCollection.FindOne(ctx, bson.M{"user_id": userId}).Decode(&user)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"statusCode": http.StatusInternalServerError, "error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, user)

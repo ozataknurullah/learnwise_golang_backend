@@ -25,7 +25,7 @@ func HashPassword(password string) string {
 func VerifyPassword(userPassword string, providedPassword string) (bool, string) {
 	err := bcrypt.CompareHashAndPassword([]byte(userPassword), []byte(providedPassword))
 	if err != nil {
-		return false, "email or password invalid!!"
+		return false, "email or password invalid"
 	}
 	return true, ""
 }
